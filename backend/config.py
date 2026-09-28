@@ -15,5 +15,5 @@ N_PER_HOPS = {"2hop": 24, "3hop": 20, "4hop": 16}
 N_DEMO = 10  # held out of eval, shown in UI dropdown
 
 TOP_K = 5
-MAX_HOPS = 2
+MAX_HOPS = 3
 MAX_EDGES = 30

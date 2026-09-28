@@ -9,7 +9,8 @@ from backend import config
 _client = ollama.Client()
 
 
-def chat(prompt, system=None, json_mode=False, temperature=0.0):
+def chat(prompt, system=None, json_mode=False, temperature=0.0, max_tokens=768):
+    # max_tokens caps runaway generations (7B models sometimes loop on list-like paragraphs)
     messages = [{"role": "system", "content": system}] if system else []
     messages.append({"role": "user", "content": prompt})
     t0 = time.perf_counter()
@@ -17,7 +18,7 @@ def chat(prompt, system=None, json_mode=False, temperature=0.0):
         model=config.LLM_MODEL,
         messages=messages,
         format="json" if json_mode else None,
-        options={"temperature": temperature},
+        options={"temperature": temperature, "num_predict": max_tokens},
     )
     content = r["message"]["content"]
     usage = {
