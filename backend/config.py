@@ -11,8 +11,7 @@ LLM_MODEL = "qwen2.5:7b-instruct"
 EMBED_MODEL = "nomic-embed-text"
 
 SEED = 42
-N_BRIDGE = 40
-N_COMPARISON = 20
+N_PER_HOPS = {"2hop": 24, "3hop": 20, "4hop": 16}
 N_DEMO = 10  # held out of eval, shown in UI dropdown
 
 TOP_K = 5
