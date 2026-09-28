@@ -89,14 +89,14 @@ def traverse(seeds, q_emb, kg):
     return kept
 
 
-def answer(question, k=config.TOP_K):
+def retrieve(question, k=config.TOP_K):
+    """Link -> traverse -> pick k paragraphs. Everything except answer generation (reused by hybrid)."""
     kg = load()
     g = kg["graph"]
     t0 = time.perf_counter()
     q_emb = np.asarray(llm.embed_query(question), dtype=np.float32)
     q_emb /= np.linalg.norm(q_emb)
     mentions, seeds, link_usage = link_entities(question, q_emb, kg)
-    link_s = time.perf_counter() - t0
 
     kept = traverse(seeds, q_emb, kg)
     # rank source paragraphs by their best edge in the traversed subgraph
@@ -114,42 +114,56 @@ def answer(question, k=config.TOP_K):
         if best and len(doc_ids) < k:
             doc_ids.append(best)
     doc_ids += [d for d in by_score if d not in doc_ids][: k - len(doc_ids)]
-    traverse_s = time.perf_counter() - t0 - link_s
 
     ranked = sorted(kept.items(), key=lambda kv: -kv[1]["score"])
-    triples = [f"({u})-[{g.edges[u, v, key]['rel']}]->({v})" for (u, v, key), _ in ranked]
-    paragraphs = [kg["corpus"][d] for d in doc_ids]
-    if triples:
-        context = ("Knowledge graph facts:\n" + "\n".join(triples) + "\n\nSource paragraphs:\n"
-                   + "\n\n".join(f"[{p['id']}] {p['title']}: {p['text']}" for p in paragraphs))
-    else:
-        context = "(no graph facts found)"
-    ans, reasoning, usage = gen.generate(question, context)
-
     node_hop = {s: 0 for s in seeds}
     for (u, v, _), meta in kept.items():
         for n in (u, v):
             node_hop[n] = min(node_hop.get(n, meta["hop"]), meta["hop"])
     return {
-        "pipeline": "graph",
-        "answer": ans,
-        "reasoning": reasoning,
         "mentions": mentions,
         "seeds": [{"node": n, "mention": m} for n, m in seeds.items()],
-        "triples": triples,
+        "triples": [f"({u})-[{g.edges[u, v, key]['rel']}]->({v})" for (u, v, key), _ in ranked],
         "subgraph": {
             "nodes": [{"id": n, "hop": h, "seed": n in seeds} for n, h in node_hop.items()],
             "edges": [{"source": u, "target": v, "rel": g.edges[u, v, key]["rel"], "doc": g.edges[u, v, key]["doc"],
                        "score": round(m["score"], 4), "hop": m["hop"]} for (u, v, key), m in ranked],
         },
-        "chunks": [{"id": p["id"], "title": p["title"], "text": p["text"], "score": round(doc_score[p["id"]], 4)}
-                   for p in paragraphs],
+        "chunks": [{"id": d, "title": kg["corpus"][d]["title"], "text": kg["corpus"][d]["text"],
+                    "score": round(doc_score[d], 4)} for d in doc_ids],
         "retrieved_ids": doc_ids,
+        "link_usage": link_usage,
+        "retrieval_s": round(time.perf_counter() - t0, 3),
+    }
+
+
+def format_paragraphs(chunks):
+    return "\n\n".join(f"[{c['id']}] {c['title']}: {c['text']}" for c in chunks)
+
+
+def answer(question, k=config.TOP_K, with_triples=True):
+    """with_triples=False is the "graph_paras" ablation: same graph-picked paragraphs, no triple list."""
+    t0 = time.perf_counter()
+    r = retrieve(question, k)
+    if not r["chunks"]:
+        context = "(no graph facts found)"
+    elif with_triples:
+        context = ("Knowledge graph facts:\n" + "\n".join(r["triples"]) + "\n\nSource paragraphs:\n"
+                   + format_paragraphs(r["chunks"]))
+    else:
+        context = format_paragraphs(r["chunks"])
+    ans, reasoning, usage = gen.generate(question, context)
+    link_usage = r.pop("link_usage")
+    return {
+        **r,
+        "pipeline": "graph" if with_triples else "graph_paras",
+        "answer": ans,
+        "reasoning": reasoning,
         "usage": {
             "prompt_tokens": usage["prompt_tokens"] + link_usage["prompt_tokens"],
             "completion_tokens": usage["completion_tokens"] + link_usage["completion_tokens"],
             "latency_s": usage["latency_s"],
-            "retrieval_s": round(link_s + traverse_s, 3),
+            "retrieval_s": r.pop("retrieval_s"),
             "total_s": round(time.perf_counter() - t0, 3),
         },
     }

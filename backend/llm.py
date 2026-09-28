@@ -7,6 +7,9 @@ import ollama
 from backend import config
 
 _client = ollama.Client()
+# Keep models resident across a long job: Ollama has twice wedged in "Stopping..." while
+# unloading one model mid-run, blocking every later request.
+KEEP_ALIVE = "1h"
 
 
 def chat(prompt, system=None, json_mode=False, temperature=0.0, max_tokens=768):
@@ -19,6 +22,7 @@ def chat(prompt, system=None, json_mode=False, temperature=0.0, max_tokens=768):
         messages=messages,
         format="json" if json_mode else None,
         options={"temperature": temperature, "num_predict": max_tokens},
+        keep_alive=KEEP_ALIVE,
     )
     content = r["message"]["content"]
     usage = {
@@ -31,8 +35,8 @@ def chat(prompt, system=None, json_mode=False, temperature=0.0, max_tokens=768):
 
 # nomic-embed-text is trained with task prefixes; using them noticeably improves retrieval.
 def embed_documents(texts):
-    return _client.embed(model=config.EMBED_MODEL, input=[f"search_document: {t}" for t in texts])["embeddings"]
+    return _client.embed(model=config.EMBED_MODEL, input=[f"search_document: {t}" for t in texts], keep_alive=KEEP_ALIVE)["embeddings"]
 
 
 def embed_query(text):
-    return _client.embed(model=config.EMBED_MODEL, input=f"search_query: {text}")["embeddings"][0]
+    return _client.embed(model=config.EMBED_MODEL, input=f"search_query: {text}", keep_alive=KEEP_ALIVE)["embeddings"][0]

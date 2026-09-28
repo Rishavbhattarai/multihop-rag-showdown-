@@ -15,7 +15,8 @@ import numpy as np
 from rapidfuzz import fuzz, process
 
 FUZZY_THRESHOLD = 92
-TOKEN_THRESHOLD = 92
+TOKEN_THRESHOLD = 95
+SUFFIXES = {"", "s", "es", "al"}
 _PUNCT = str.maketrans("", "", string.punctuation.replace("(", "").replace(")", ""))
 
 
@@ -26,12 +27,13 @@ def normalize(name):
 
 
 def _same_word(x, y):
-    # plural/possessive suffix ("team"/"teams") or near-identical spelling;
-    # not "baseball"/"basketball", not "i"/"ii" (World War I vs II)
+    # Plural/possessive/adjectival suffix ("team"/"teams", "historic"/"historical"), or a near-identical
+    # spelling that starts with the same letter. Rejects "i"/"ii" (World War I vs II), "claus"/"clause"
+    # (Santa Claus vs The Santa Clause), "sejm"/"sejmik", "russia"/"prussia", "chopper"/"copper".
     short, long_ = sorted((x, y), key=len)
-    if len(short) >= 3 and long_.startswith(short) and len(long_) - len(short) <= 2:
+    if len(short) >= 3 and long_.startswith(short) and long_[len(short):] in SUFFIXES:
         return True
-    return fuzz.ratio(x, y) >= TOKEN_THRESHOLD
+    return x[:1] == y[:1] and fuzz.ratio(x, y) >= TOKEN_THRESHOLD
 
 
 def _is_texty(norm):
